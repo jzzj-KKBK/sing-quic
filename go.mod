@@ -19,3 +19,5 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/tools v0.24.0 // indirect
 )
+
+replace github.com/sagernet/sing-quic => github.com/jzzj-KKBK/sing-quic v0.0.0-20260214171744-93729aecd3cb
