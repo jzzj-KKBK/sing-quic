@@ -13,9 +13,8 @@ import (
 	"time"
 
 	"github.com/sagernet/quic-go"
-	"github.com/sagernet/sing-quic"
+	qtls "github.com/sagernet/sing-quic"
 	hyCC "github.com/sagernet/sing-quic/hysteria/congestion"
-	"github.com/sagernet/sing/common/baderror"
 	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/debug"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -142,7 +141,7 @@ func ParsePorts(serverPorts []string) ([]uint16, error) {
 		if subIndex > 0 {
 			start, err = strconv.ParseUint(portRange[:subIndex], 10, 16)
 			if err != nil {
-				return nil, E.Cause(err, E.Cause(err, "bad port range: ", portRange))
+				return nil, E.Cause(err, "bad port range: ", portRange)
 			}
 		}
 		if subIndex == len(portRange)-1 {
@@ -150,7 +149,7 @@ func ParsePorts(serverPorts []string) ([]uint16, error) {
 		} else {
 			end, err = strconv.ParseUint(portRange[subIndex+1:], 10, 16)
 			if err != nil {
-				return nil, E.Cause(err, E.Cause(err, "bad port range: ", portRange))
+				return nil, E.Cause(err, "bad port range: ", portRange)
 			}
 		}
 		for i := start; i <= end; i++ {
@@ -232,7 +231,7 @@ func (c *Client) offerNew(ctx context.Context) (*clientQUICConnection, error) {
 		quicConn:    quicConn,
 		rawConn:     packetConn,
 		connDone:    make(chan struct{}),
-		udpDisabled: !quicConn.ConnectionState().SupportsDatagrams,
+		udpDisabled: !(quicConn.ConnectionState().SupportsDatagrams.Local && quicConn.ConnectionState().SupportsDatagrams.Remote),
 		udpConnMap:  make(map[uint32]*udpPacketConn),
 	}
 	if !c.udpDisabled {
@@ -333,7 +332,7 @@ func (c *Client) CloseWithError(err error) error {
 }
 
 type clientQUICConnection struct {
-	quicConn    quic.Connection
+	quicConn    *quic.Conn
 	rawConn     io.Closer
 	closeOnce   sync.Once
 	connDone    chan struct{}
@@ -367,7 +366,7 @@ func (c *clientQUICConnection) closeWithError(err error) {
 }
 
 type clientConn struct {
-	quic.Stream
+	*quic.Stream
 	destination    M.Socksaddr
 	requestWritten bool
 	responseRead   bool
@@ -380,11 +379,11 @@ func (c *clientConn) NeedHandshake() bool {
 func (c *clientConn) Read(p []byte) (n int, err error) {
 	if c.responseRead {
 		n, err = c.Stream.Read(p)
-		return n, baderror.WrapQUIC(err)
+		return n, qtls.WrapError(err)
 	}
 	response, err := ReadServerResponse(c.Stream)
 	if err != nil {
-		return 0, baderror.WrapQUIC(err)
+		return 0, qtls.WrapError(err)
 	}
 	if !response.OK {
 		err = E.New("remote error: ", response.Message)
@@ -392,7 +391,7 @@ func (c *clientConn) Read(p []byte) (n int, err error) {
 	}
 	c.responseRead = true
 	n, err = c.Stream.Read(p)
-	return n, baderror.WrapQUIC(err)
+	return n, qtls.WrapError(err)
 }
 
 func (c *clientConn) Write(p []byte) (n int, err error) {
@@ -411,7 +410,7 @@ func (c *clientConn) Write(p []byte) (n int, err error) {
 		return len(p), nil
 	}
 	n, err = c.Stream.Write(p)
-	return n, baderror.WrapQUIC(err)
+	return n, qtls.WrapError(err)
 }
 
 func (c *clientConn) LocalAddr() net.Addr {
